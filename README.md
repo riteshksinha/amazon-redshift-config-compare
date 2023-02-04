@@ -26,18 +26,20 @@ If you are already running Amazon Redshift workload in production, you may like 
 
 ## Example Use Case
 
-As an example, you may assume you have an existing Amazon Redshift cluster with 2 nodes of DC2.8XLarge instances. You would like to evaluate moving this cluster to RA3.4XLarge instances with two and four nodes. For that, you would like to run five test queries sequentially as well as in five parallel sessions in all these clusters. You would also like to replay one hour past workload in these clusters and compare their performance.
+As an example, you may assume you have an existing Amazon Redshift cluster with 2 nodes of DC2.8XLarge instances. You would like to evaluate moving this cluster to RA3.4XLarge instances with two, four nodes and Redshift Serverless with base RPU 128 and 256. For that, you would like to run five test queries sequentially as well as in five parallel sessions in all these clusters. You would also like to replay one hour past workload in these clusters and compare their performance.
 
 For your RA3.4XLarge four node configuration, you would also like to test your workload performance with [concurrency scaling](https://docs.aws.amazon.com/redshift/latest/dg/concurrency-scaling.html) enabled in that cluster, which could help improve concurrent workloads with consistently fast query performance.
 
 At the end of this test, you would like to compare various metrics like total, average, median and maximum time taken for these four cluster configurations:
 
-| **node type** | **number of nodes** | **option** |
+| **node type** | **number of nodes/Base RPU** | **option** |
 | --- | --- | --- |
 | dc2.8xlarge | 2 | concurrency scaling disabled |
 | ra3.4xlarge | 2 | concurrency scaling disabled |
 | ra3.4xlarge | 4 | concurrency scaling disabled |
 | ra3.4xlarge | 4 | concurrency scaling enabled |
+| Redshift Serverless | 128 | concurrency scaling disabled |
+| Redshift Serverless | 256 | concurrency scaling disabled |
 
 To perform this test using [Amazon Redshift node configuration comparison utility](https://github.com/aws-samples/amazon-redshift-config-compare), you would like to provide these configurations in a [JSON file](https://github.com/aws-samples/amazon-redshift-config-compare/blob/main/user_config.json) and store it in an Amazon S3 bucket. You may then use [AWS CloudFormation Template](https://console.aws.amazon.com/cloudformation/home?#/stacks/new?stackName=redshift-node-config-comparison&amp;templateURL=https://s3-us-west-2.amazonaws.com/redshift-simple-replay-ra3/cfn/redshift-node-config-comparison.yaml) to deploy this utility, which would perform the end-to-end performance testing in all above clusters in parallel and produce a price/performance evaluation summary. Based on that summary, you would be easily deciding which configuration works best for you.
 
@@ -65,6 +67,10 @@ You need to provide a configuration JSON file to use this solution. Below are th
 | NODE\_TYPE | ra3.xlplus, ra3.4xlarge, ra3.16xlarge, dc2.large, dc2.8xlarge, ds2.xlarge, ds2.8xlarge | Input Amazon Redshift Cluster Node Type for which, you would like to run this testing. |
 | NUMBER\_OF\_NODES | a number between 1 and 128 | Input number of nodes for your Amazon Redshift Cluster |
 | WLM\_CONFIG\_S3\_PATH | N/A,Amazon S3 URI | If you may like to use custom workload management settings if different Amazon Redshift clusters, please provide the S3 URI for that. |
+| TYPE | Valid input Provisioned and Serverless  | Input Amazon Redshift type for which you would like to run this testing |
+| MAINTENANCE_TRACK | N/A, Trailing or Current  | Amazon Redshift version against which you would like to run this testing |
+| BASE_RPU | Base capacity setting from 32 RPUs to 512 RPUs in units of 8 (32,40,48...512)  | This setting specifies the base data warehouse capacity Amazon Redshift uses to serve queries. Base capacity is specified in RPUs. |
+
 
 Here is a sample configuration JSON file, used to implement this example use-case:   
 
@@ -91,24 +97,37 @@ Here is a sample configuration JSON file, used to implement this example use-cas
 
   "CONFIGURATIONS": [
   	{
+  	"TYPE": "Provisioned",
   	"NODE_TYPE": "dc2.8xlarge",
   	"NUMBER_OF_NODES": "2",
   	"WLM_CONFIG_S3_PATH": "s3://node-config-compare-bucket/source-wlm.json"
   	},
   	{
+  	"TYPE": "Provisioned",
   	"NODE_TYPE": "ra3.4xlarge",
   	"NUMBER_OF_NODES": "2",
   	"WLM_CONFIG_S3_PATH": "s3://node-config-compare-bucket/source-wlm.json"
   	},
   	{
+  	"TYPE": "Provisioned",
   	"NODE_TYPE": "ra3.4xlarge",
   	"NUMBER_OF_NODES": "4",
-  	"WLM_CONFIG_S3_PATH": "s3://node-config-compare-bucket/source-wlm.json"
+  	"WLM_CONFIG_S3_PATH": "s3://node-config-compare-bucket/source-wlm.json",
+  	"MAINTENANCE_TRACK": "Trailing",
   	},
   	{
+  	"TYPE": "Provisioned",
   	"NODE_TYPE": "ra3.4xlarge",
   	"NUMBER_OF_NODES": "4",
   	"WLM_CONFIG_S3_PATH": "s3://node-config-compare-bucket/wlm-concurrency-scaling.json"
+  	},
+  	{
+  	"TYPE": "Serverless",
+  	"BASE_RPU": "128"
+  	},
+  	{
+  	"TYPE": "Serverless",
+  	"BASE_RPU": "256"
   	}
   ]
   }
@@ -131,6 +150,11 @@ Once the configuration JSON file is saved in an Amazon S3 bucket, you may use [t
 | VPC | VPC ID	| An existing [Amazon Virtual Private Cloud](https://aws.amazon.com/vpc/) (Amazon VPC) where you want to deploy the clusters and EC2 instances.
 | SubnetId | Subnet ID| An existing subnet within the VPC in which you deploy the Amazon Redshift clusters and AWS Batch compute environment.
 | UseAWSLakeFormationForGlueCatalog | No,Yes | Default value is No ,Select Yes if AWS Lake Formation is enabled for the account and manages access for Glue catalog
+| AuditLoggingS3Bucket | No,Yes | Default value is No ,Select Yes if AWS Lake Formation is enabled for the account and manages access for Glue catalog
+| AWSBatchSubnetId | Subnet ID | Provide 1 existing subnet within the VPC in which you deploy AWS Batch compute environment.
+| AWSECRContainerImage | N/A, Amazon Elastic Container Registry | Default value is N/A, Provide container image if you would like to use the one which is already available.
+| NotificationEmail | N/A, Email address | Default value is N/A , Provide one email address if you would like to receive notification regarding the status
+| RedshiftSubnetId | Subnet ID | Provide 3 existing subnet within the VPC in which you deploy the Amazon Redshift clusters and AWS Batch compute environment.
 
 
 ## Orchestration with AWS Step Functions State Machine
