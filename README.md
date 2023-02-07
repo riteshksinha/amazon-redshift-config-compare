@@ -24,9 +24,13 @@ This solution uses [AWS CloudFormation](https://aws.amazon.com/cloudformation/) 
 
 If you are already running Amazon Redshift workload in production, you may like to use this solution to replay your past workload leveraging [Amazon Redshift Simple Replay Utility](https://github.com/awslabs/amazon-redshift-utils/tree/master/src/SimpleReplay). As a prerequisite to use simple replay utility, you need to enable [audit logging](https://docs.aws.amazon.com/redshift/latest/mgmt/db-auditing.html#db-auditing-enable-logging) and [user-activity logging](https://docs.aws.amazon.com/redshift/latest/mgmt/db-auditing.html#db-auditing-user-activity-log) in your Amazon Redshift cluster.
 
+If you are going to replay your workload into Serverless workgroup then make sure that you must have at least three subnets, and they must span across three Availability Zones. You can review the considerations when using Amazon Redshift Serverless [here](https://docs.aws.amazon.com/redshift/latest/mgmt/serverless-known-issues.html).
+
+You need to provide at least one subnet in the same VPC (where you have Redshift clusters) which has access to the internet to download the ECR container image.
+
 ## Example Use Case
 
-As an example, you may assume you have an existing Amazon Redshift cluster with 2 nodes of DC2.8XLarge instances. You would like to evaluate moving this cluster to RA3.4XLarge instances with two, four nodes and Redshift Serverless with base RPU 128 and 256. For that, you would like to run five test queries sequentially as well as in five parallel sessions in all these clusters. You would also like to replay one hour past workload in these clusters and compare their performance.
+As an example, you may assume you have an existing Amazon Redshift cluster with 2 nodes of DC2.8XLarge instances. You would like to evaluate moving this cluster to RA3.4XLarge instances with four nodes and Redshift Serverless with base RPU 64 and 128. You would replay one hour past workload in these clusters and compare their performance.
 
 For your RA3.4XLarge four node configuration, you would also like to test your workload performance with [concurrency scaling](https://docs.aws.amazon.com/redshift/latest/dg/concurrency-scaling.html) enabled in that cluster, which could help improve concurrent workloads with consistently fast query performance.
 
@@ -35,11 +39,10 @@ At the end of this test, you would like to compare various metrics like total, a
 | **node type** | **number of nodes/Base RPU** | **option** |
 | --- | --- | --- |
 | dc2.8xlarge | 2 | concurrency scaling disabled |
-| ra3.4xlarge | 2 | concurrency scaling disabled |
 | ra3.4xlarge | 4 | concurrency scaling disabled |
 | ra3.4xlarge | 4 | concurrency scaling enabled |
-| Redshift Serverless | 128 | concurrency scaling disabled |
-| Redshift Serverless | 256 | concurrency scaling disabled |
+| Redshift Serverless | 64 | auto scaling |
+| Redshift Serverless | 128 | auto scaling |
 
 To perform this test using [Amazon Redshift node configuration comparison utility](https://github.com/aws-samples/amazon-redshift-config-compare), you would like to provide these configurations in a [JSON file](https://github.com/aws-samples/amazon-redshift-config-compare/blob/main/user_config.json) and store it in an Amazon S3 bucket. You may then use [AWS CloudFormation Template](https://console.aws.amazon.com/cloudformation/home?#/stacks/new?stackName=redshift-node-config-comparison&amp;templateURL=https://s3-us-west-2.amazonaws.com/redshift-simple-replay-ra3/cfn/redshift-node-config-comparison.yaml) to deploy this utility, which would perform the end-to-end performance testing in all above clusters in parallel and produce a price/performance evaluation summary. Based on that summary, you would be easily deciding which configuration works best for you.
 
@@ -67,9 +70,9 @@ You need to provide a configuration JSON file to use this solution. Below are th
 | NODE\_TYPE | ra3.xlplus, ra3.4xlarge, ra3.16xlarge, dc2.large, dc2.8xlarge, ds2.xlarge, ds2.8xlarge | Input Amazon Redshift Cluster Node Type for which, you would like to run this testing. |
 | NUMBER\_OF\_NODES | a number between 1 and 128 | Input number of nodes for your Amazon Redshift Cluster |
 | WLM\_CONFIG\_S3\_PATH | N/A,Amazon S3 URI | If you may like to use custom workload management settings if different Amazon Redshift clusters, please provide the S3 URI for that. |
-| TYPE | Valid input Provisioned and Serverless  | Input Amazon Redshift type for which you would like to run this testing |
-| MAINTENANCE_TRACK | N/A, Trailing or Current  | Amazon Redshift version against which you would like to run this testing |
-| BASE_RPU | Base capacity setting from 32 RPUs to 512 RPUs in units of 8 (32,40,48...512)  | This setting specifies the base data warehouse capacity Amazon Redshift uses to serve queries. Base capacity is specified in RPUs. |
+| TYPE | Provisioned, Serverless  | Input Amazon Redshift type for which you would like to run this testing |
+| MAINTENANCE_TRACK | N/A, Trailing, Current  | Amazon Redshift version against which you would like to run this testing |
+| BASE_RPU | Base capacity setting from 32 RPUs to 512 RPUs  | This setting specifies the base data warehouse capacity Amazon Redshift uses to serve queries. |
 
 
 Here is a sample configuration JSON file, used to implement this example use-case:   
@@ -143,18 +146,17 @@ Once the configuration JSON file is saved in an Amazon S3 bucket, you may use [t
 | --- | --- | --- |
 | ConfigJsonS3Path | Amazon S3 URI | Input S3 URI where you stored your JSON Configuration File from the previous step. The template would grant access on this Amazon S3 bucket to appropriate AWS resources created by this solution. |
 | ClusterIdentifierPrefix | Prefix of Amazon Redshift cluster identifiers | Input a valid string like rs, to be used as prefix of your Amazon Redshift cluster identifiers, created by this solution |
-| PreExistingS3BucketToGrantRedshiftAccess | N/A,Amazon S3 URI | If using Redshift Simple Replay, please input Redshift Audit Logging Bucket Name here so that it can grant appropriate permissions to the AWS Resources. You may also add an existing Amazon S3 bucket in same AWS Region, which can be accessed by Redshift. Input N/A if not applicable |
+| AuditLoggingS3Bucket | N/A,Amazon S3 URI | If using Redshift Simple Replay, please input Redshift Audit Logging Bucket Name here so that it can grant appropriate permissions to the AWS Resources. You may also add an existing Amazon S3 bucket in same AWS Region, which can be accessed by Redshift. Input N/A if not applicable |
 | GrantS3ReadOnlyAccessToRedshift | Yes,No | If you’re using Simple Replay in the same AWS account as the source Amazon Redshift cluster, enter Yes for this parameter, which grants AmazonS3ReadOnlyAccess to the new Amazon Redshift clusters to replay copy statements within the account. Otherwise, enter No so you can’t replay copy statements if running on a different AWS account without manually configuring it.
 | SourceRedshiftClusterKMSKeyARN | N/A, AWS KMS Key ARN |  [AWS Key Management Service (KMS) ](https://aws.amazon.com/kms/)Key ARN (Amazon Resource Name) if your source Redshift cluster is encrypted (available on the stack Outputs tab). You need to run extract and replay in the same account, if your source cluster is encrypted.
 | OnPremisesCIDR | CIDR Notation |  The IP range (CIDR notation) for your existing infrastructure to access the target and replica clusters from a SQL client. If unsure, enter your corporate desktop&#39;s CIDR address. For instance, if your desktop&#39;s IP address is 10.156.87.45, enter10.156.87.45/32.
 | VPC | VPC ID	| An existing [Amazon Virtual Private Cloud](https://aws.amazon.com/vpc/) (Amazon VPC) where you want to deploy the clusters and EC2 instances.
 | SubnetId | Subnet ID| An existing subnet within the VPC in which you deploy the Amazon Redshift clusters and AWS Batch compute environment.
 | UseAWSLakeFormationForGlueCatalog | No,Yes | Default value is No ,Select Yes if AWS Lake Formation is enabled for the account and manages access for Glue catalog
-| AuditLoggingS3Bucket | No,Yes | Default value is No ,Select Yes if AWS Lake Formation is enabled for the account and manages access for Glue catalog
-| AWSBatchSubnetId | Subnet ID | Provide 1 existing subnet within the VPC in which you deploy AWS Batch compute environment.
-| AWSECRContainerImage | N/A, Amazon Elastic Container Registry | Default value is N/A, Provide container image if you would like to use the one which is already available.
-| NotificationEmail | N/A, Email address | Default value is N/A , Provide one email address if you would like to receive notification regarding the status
-| RedshiftSubnetId | Subnet ID | Provide 3 existing subnet within the VPC in which you deploy the Amazon Redshift clusters and AWS Batch compute environment.
+| AWSBatchSubnetId | Subnet ID | Provide 1 existing subnet (subnet should have route to the internet) within the VPC in which you deploy AWS Batch compute environment.
+| AWSECRContainerImage | N/A, Amazon Elastic Container Registry | Default value is N/A, Provide container image if you would like to use your private image which is already available.
+| NotificationEmail | N/A, Email address | Default value is N/A , Provide one email address if you would like to receive step function status notifications
+| RedshiftSubnetId | Subnet ID | You can provide upto 3 subnets within the same VPC to deploy the Amazon Redshift clusters and Serverless workgroups.
 
 
 ## Orchestration with AWS Step Functions State Machine
@@ -199,19 +201,8 @@ select * from public.redshift_config_comparison_results;
 | simple-replay | rs-ra3-4xlarge-2 | 35.26 | 0% | 1.76 | 0% | 1.063 | 10% |
 | simple-replay | rs-ra3-4xlarge-4 | 19.58 | 80% | 0.98 | 80% | 0.681 | 72% |
 | simple-replay | rs-ra3-4xlarge-4-cs | 20.16 | 75% | 1.01 | 74% | 0.716 | 63% |
-| concurrency-1 | rs-dc2-8xlarge-2 | 3.46 | 4% | 0.69 | 4% | 0.576 | 0% |
-| concurrency-1 | rs-ra3-4xlarge-2 | 3.61 | 0% | 0.72 | 0% | 0.571 | 1% |
-| concurrency-1 | rs-ra3-4xlarge-4 | 2.67 | 35% | 0.53 | 36% | 0.445 | 29% |
-| concurrency-1 | rs-ra3-4xlarge-4-cs | 1.45 | 149% | 0.29 | 148% | 0.275 | 109% |
-| concurrency-5 | rs-dc2-8xlarge-2 | 22.74 | 102% | 0.91 | 102% | 0.615 | 135% |
-| concurrency-5 | rs-ra3-4xlarge-2 | 45.88 | 0% | 1.84 | 0% | 1.443 | 0% |
-| concurrency-5 | rs-ra3-4xlarge-4 | 22.75 | 102% | 0.91 | 102% | 0.808 | 79% |
-| concurrency-5 | rs-ra3-4xlarge-4-cs | 21.19 | 117% | 0.9 | 104% | 0.884 | 63% |
-| concurrency-10 | rs-dc2-8xlarge-2 | 127.46 | 39% | 2.55 | 38% | 1.797 | 81% |
-| concurrency-10 | rs-ra3-4xlarge-2 | 176.62 | 0% | 3.53 | 0% | 3.256 | 0% |
-| concurrency-10 | rs-ra3-4xlarge-4 | 92.18 | 92% | 1.84 | 92% | 1.661 | 96% |
-| concurrency-10 | rs-ra3-4xlarge-4-cs | 88.16 | 100% | 1.76 | 101% | 1.59 | 105% |
-
+| simple-replay | workgroup-rs-64 | 12.64 | 80% | 0.98 | 80% | 0.354 | 70% |
+| simple-replay | workgroup-rs-128 | 09.16 | 120% | 0.62 | 90% | 0.221 | 88% |
 
 Based on above results, you may observe that four nodes of RA3.4XLarge with concurrency scaling enabled was the best performing configuration in this testing.
 
@@ -225,42 +216,11 @@ select * from public.redshift_config_comparison_raw;
 
 | **query hash** | **cluster identifier** | **exec time seconds** | **total query time seconds** | **compile time seconds** | **queue time seconds** | **cc scaling** | **userid** | **query** |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0531f3b54885afb | rs-dc2-8xlarge-2 | 2 | 7 | 5 | 0 | 0 | 100 | 623 |
-| 0531f3b54885afb | rs-ra3-4xlarge-2 | 4 | 5 | 0 | 0 | 0 | 100 | 718 |
-| 0531f3b54885afb | rs-ra3-4xlarge-4 | 2 | 5 | 3 | 0 | 0 | 100 | 727 |
-| 0531f3b54885afb | rs-ra3-4xlarge-4-cs | 2 | 5 | 3 | 0 | 0 | 100 | 735 |
-| 10ef3990f05c9f8 | rs-dc2-8xlarge-2 | 0 | 0 | 0 | 0 | 0 | 100 | 547 |
-| 10ef3990f05c9f8 | rs-ra3-4xlarge-2 | 0 | 0 | 0 | 0 | 0 | 100 | 644 |
-| 10ef3990f05c9f8 | rs-ra3-4xlarge-4 | 0 | 0 | 0 | 0 | 0 | 100 | 659 |
-| 10ef3990f05c9f8 | rs-ra3-4xlarge-4-cs | 0 | 0 | 0 | 0 | 0 | 100 | 661 |
-| 27dcd325d97f079 | rs-dc2-8xlarge-2 | 1 | 1 | 0 | 0 | 0 | 100 | 646 |
-| 27dcd325d97f079 | rs-ra3-4xlarge-2 | 3 | 4 | 0 | 0 | 0 | 100 | 743 |
-
-**REDSHIFT\_CONFIG\_COMPARISON\_PRICING**
-
-This view provides the public pricing information for your Amazon Redshift cluster configurations based on data available in [AWS Price List API](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/using-ppslong.html) as below:
-
-```sql
-select * from public.redshift_config_comparison_pricing;
-```
-| **node**** type **|** number of nodes **|** pricing ****options** | **your cluster yearly compute cost** | **per compute node yearly cost** |
-| --- | --- | --- | --- | --- |
-| dc2.8xlarge | 2 | On-Demand | $84,096 | $42,048 |
-| dc2.8xlarge | 2 | Reserved-1yr-All Upfront | $55,280 | $27,640 |
-| dc2.8xlarge | 2 | Reserved-1yr-No Upfront | $66,576 | $33,288 |
-| dc2.8xlarge | 2 | Reserved-3yr-All Upfront | $26,312 | $13,156 |
-| ra3.4xlarge | 2 | On-Demand | $57,114 | $28,557 |
-| ra3.4xlarge | 2 | Reserved-1yr-All Upfront | $37,696 | $18,848 |
-| ra3.4xlarge | 2 | Reserved-1yr-No Upfront | $39,980 | $19,990 |
-| ra3.4xlarge | 2 | Reserved-3yr-All Upfront | $21,418 | $10,709 |
-| ra3.4xlarge | 2 | Reserved-3yr-No Upfront | $24,844 | $12,422 |
-| ra3.4xlarge | 4 | On-Demand | $114,228 | $28,557 |
-| ra3.4xlarge | 4 | Reserved-1yr-All Upfront | $75,392 | $18,848 |
-| ra3.4xlarge | 4 | Reserved-1yr-No Upfront | $79,960 | $19,990 |
-| ra3.4xlarge | 4 | Reserved-3yr-All Upfront | $42,836 | $10,709 |
-| ra3.4xlarge | 4 | Reserved-3yr-No Upfront | $49,688 | $12,422 |
-
-
+| 0531f3b54885afb | rs-dc2-8xlarge-2 | 4 | 7 | 5 | 0 | 0 | 100 | 623 |
+| 0531f3b54885afb | rs-ra3-4xlarge-4 | 4 | 5 | 3 | 0 | 0 | 100 | 727 |
+| 0531f3b54885afb | rs-ra3-4xlarge-4-cs | 3 | 5 | 3 | 0 | 0 | 100 | 735 |
+| 0531f3b54885afb | workgroup-rs-64 | 2 | 3 | 0 | 0 | 0 | 100 | 718 |
+| 0531f3b54885afb | workgroup-rs-128 | 1 | 1 | 0 | 0 | 0 | 100 | 718 |
 
 ## Security
 
